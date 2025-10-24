@@ -1,6 +1,7 @@
 //! Process management syscalls
-use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next};
 
+use crate::task::{change_program_brk, exit_current_and_run_next, get_call_times, mmap_area, munmap_area, suspend_current_and_run_next};
+use crate::mm::{is_readable, is_writable, is_user_accessable, translate_ptr, VirtAddr};
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -25,28 +26,77 @@ pub fn sys_yield() -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let phys_ptr: *mut TimeVal = translate_ptr(ts);
+    let us = crate::timer::get_time_us();
+    unsafe {
+        *phys_ptr = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,
+        };
+    }
+    0
 }
 
 /// TODO: Finish sys_trace to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
-pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
+pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+
+    match trace_request {
+        0 => {
+            if !is_readable(id) || !is_user_accessable(id) {
+                return -1;
+            }
+            let phys_ptr = translate_ptr(id as *const u8);
+            let ptr = phys_ptr as *const u8;
+            unsafe {
+                core::ptr::read_volatile(ptr) as isize
+            }
+        }
+        1 => {
+            if !is_writable(id) || !is_user_accessable(id) {
+                return -1;
+            }
+            let phys_ptr = translate_ptr(id as *mut u8);
+            let ptr = phys_ptr as *mut u8;
+            unsafe {
+                core::ptr::write_volatile(ptr, data as u8);
+            }
+            0
+        }
+        2 => {
+            get_call_times(id) as isize
+        }
+        _ => {
+            -1
+        }
+    }
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    trace!("kernel: sys_mmap");
+    if start % 4096 != 0 || port & !0x7 != 0 || port == 0 || len == 0 {
+        return -1;
+    }
+    if mmap_area(start, len, port) {
+        0
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    trace!("kernel: sys_munmap");
+    let va = VirtAddr::from(start);
+    if va.page_offset() != 0 || len % 4096 != 0 || len == 0{
+        return -1;
+    }
+    munmap_area(start, len);
+    0
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

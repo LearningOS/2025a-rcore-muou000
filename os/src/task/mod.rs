@@ -126,6 +126,31 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
+    ///get the call time of current task
+    fn get_current_call_times(&self, id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].call_times[id]
+    }
+
+    fn add_current_call_times(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].call_times[id] += 1;
+    }
+
+    /// mmap a memory area for current task
+    fn mmap_current_area(&self, start: usize, len: usize, perm: usize) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].mmap_area(start, len, perm)
+    }
+
+    fn munmap_current_area(&self, start: usize, len: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].munmap_area(start, len);
+    }
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -201,4 +226,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get the call times of this task
+pub fn get_call_times(id: usize) -> usize {
+    TASK_MANAGER.get_current_call_times(id)
+}
+
+/// Add the call times of this task
+pub fn add_call_times(id: usize) {
+    TASK_MANAGER.add_current_call_times(id);
+}
+
+/// mmap a memory area for task
+pub fn mmap_area(start: usize, len: usize, perm: usize) -> bool {
+    TASK_MANAGER.mmap_current_area(start, len, perm)
+}
+
+/// munmap a memory area for task
+pub fn munmap_area(start: usize, len: usize) {
+    TASK_MANAGER.munmap_current_area(start, len);
 }

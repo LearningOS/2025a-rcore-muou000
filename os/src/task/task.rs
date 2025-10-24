@@ -6,6 +6,7 @@ use crate::mm::{
 };
 use crate::trap::{trap_handler, TrapContext};
 
+const SYSCALL_NUM: usize = 411;
 /// The task control block (TCB) of a task.
 pub struct TaskControlBlock {
     /// Save task context
@@ -28,6 +29,9 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Call times
+    pub call_times: [usize; SYSCALL_NUM],
 }
 
 impl TaskControlBlock {
@@ -63,6 +67,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            call_times: [0; SYSCALL_NUM],
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
@@ -95,6 +100,31 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+
+    /// mmap a memory area for task
+    pub fn mmap_area(&mut self, start: usize, len: usize, perm: usize) -> bool {
+        use crate::mm::MapPermission;
+
+        let mut map_perm = MapPermission::U;
+        if perm & 0x1 != 0 { map_perm |= MapPermission::R; }
+        if perm & 0x2 != 0 { map_perm |= MapPermission::W; }
+        if perm & 0x4 != 0 { map_perm |= MapPermission::X; }
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+        if self.memory_set.is_address_mapped(start_va, end_va) {
+            return false;
+        }
+        self.memory_set.insert_framed_area(start_va, end_va, map_perm);
+        true
+    }
+
+    /// munmap a memory area for task
+    pub fn munmap_area(&mut self, start: usize, len: usize) {
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+
+        self.memory_set.remove_framed_area(start_va, end_va);
     }
 }
 
