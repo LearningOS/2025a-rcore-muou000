@@ -300,6 +300,60 @@ impl MemorySet {
             false
         }
     }
+
+    /// insert a mmap area
+    pub fn mmap_area(&mut self, start: usize, len: usize, port: usize) -> bool {
+        let start_va: VirtAddr = start.into();
+        let end_va: VirtAddr = (start + len).into();
+        let map_perm = match port {
+            1 => MapPermission::R | MapPermission::U,
+            2 => MapPermission::R | MapPermission::W | MapPermission::U,
+            4 => MapPermission::X | MapPermission::U,
+            3 => MapPermission::R | MapPermission::W | MapPermission::U,
+            5 => MapPermission::R | MapPermission::X | MapPermission::U,
+            6 => MapPermission::R | MapPermission::W | MapPermission::X | MapPermission::U,
+            _ => return false,
+        };
+
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        for vpn in VPNRange::new(start_vpn, end_vpn) {
+            if let Some(pte) = self.translate(vpn) {
+                if pte.is_valid() {
+                    return false;
+                }
+            }
+        }
+
+        // safe to map
+        self.insert_framed_area(start_va, end_va, map_perm);
+        true
+    }
+
+    /// remove a mmap area
+    pub fn munmap_area(&mut self, start: usize, len: usize) {
+        let start_va: VirtAddr = start.into();
+        let end_va: VirtAddr = (start + len).into();
+        self.remove_framed_area(start_va, end_va);
+    }
+    /// Remove a framed area
+    pub fn remove_framed_area(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+    ) {
+        if let Some(index) = self
+            .areas
+            .iter()
+            .position(|area|
+                VirtAddr::from(area.vpn_range.get_start()) == start_va
+                    && VirtAddr::from(area.vpn_range.get_end()) == end_va
+            )
+        {
+            let mut area = self.areas.remove(index);
+            area.unmap(&mut self.page_table);
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

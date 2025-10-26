@@ -4,6 +4,7 @@ use crate::sync::UPSafeCell;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use lazy_static::*;
+const BIG_STRIDE: usize = 1000000;
 ///A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {
     ready_queue: VecDeque<Arc<TaskControlBlock>>,
@@ -22,8 +23,27 @@ impl TaskManager {
         self.ready_queue.push_back(task);
     }
     /// Take a process out of the ready queue
+    /// 参考了知乎：OS的调度基础[三]https://zhuanlan.zhihu.com/p/124313667，并使用Microsoft Copilot辅助理解
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.ready_queue.pop_front()
+        let mut min_stride = usize::MAX;
+        let mut min_stride_index = 0;
+        for (i, task_control_block) in self.ready_queue.iter().enumerate() {
+            let inner = task_control_block.inner_exclusive_access();
+            let current_stride = inner.stride;
+            if current_stride < min_stride {
+                min_stride = current_stride;
+                min_stride_index = i;
+            }
+        }
+
+        let task = self.ready_queue.remove(min_stride_index).unwrap();
+
+        let mut inner = task.inner_exclusive_access();
+        let pass = BIG_STRIDE / inner.priority;
+        inner.stride += pass;
+        drop(inner);
+
+        Some(task)
     }
 }
 
