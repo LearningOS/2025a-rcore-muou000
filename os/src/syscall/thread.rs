@@ -4,6 +4,7 @@ use crate::{
     trap::{trap_handler, TrapContext},
 };
 use alloc::sync::Arc;
+use alloc::vec;
 /// thread create syscall
 pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     trace!(
@@ -41,6 +42,19 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
         tasks.push(None);
     }
     tasks[new_task_tid] = Some(Arc::clone(&new_task));
+
+    if process_inner.enable_deadlock_detect {
+        while process_inner.available.len() < new_task_tid + 1 {
+            process_inner.available.push(vec![]);
+        }
+        while process_inner.allocation.len() < new_task_tid + 1 {
+            process_inner.allocation.push(vec![]);
+        }
+        while process_inner.need.len() < new_task_tid + 1 {
+            process_inner.need.push(vec![]);
+        }
+    }
+
     let new_task_trap_cx = new_task_inner.get_trap_cx();
     *new_task_trap_cx = TrapContext::app_init_context(
         entry,
